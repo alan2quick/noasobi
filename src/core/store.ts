@@ -27,19 +27,56 @@ export interface SaveDesignInput {
   thumbnail: string;
 }
 
+/** Where the studio goes when it closes, and what a newly saved design is used for. */
+export interface StudioOptions {
+  /** Mode to return to on cancel (default 'world'). */
+  returnTo?: Mode;
+  /** Apply a newly saved design to this entity instead of entering place mode. */
+  applyTo?: string;
+}
+
+export interface StudioSession extends StudioOptions {
+  speciesId: string;
+  designId?: string;
+  /** Set by saveDesign when this session created a new design. */
+  savedNewId?: string;
+}
+
+/** What place mode is placing. */
+export interface Placement {
+  speciesId: string;
+  designId: string;
+}
+
+/** A design restored from storage: meta plus its full-resolution image. */
+export interface RestoredDesign {
+  meta: DesignMeta;
+  source: CanvasImageSource;
+}
+
 interface AppState {
   mode: Mode;
   setMode(mode: Mode): void;
 
   designLevel: 1 | 2;
   setDesignLevel(level: 1 | 2): void;
-  studio: { speciesId: string; designId?: string } | null;
-  openStudio(speciesId: string, designId?: string): void;
+  studio: StudioSession | null;
+  openStudio(speciesId: string, designId?: string, options?: StudioOptions): void;
+  /**
+   * Leaves the studio. If the session saved a NEW design it goes to place mode with it (or applies
+   * it to `applyTo`); otherwise it returns to `returnTo` (default 'world').
+   */
   closeStudio(): void;
 
   designs: Record<string, DesignMeta>;
   saveDesign(input: SaveDesignInput): DesignMeta;
   deleteDesign(designId: string): void;
+  /** Adds designs loaded from storage without changing their meta (used by persistence). */
+  restoreDesigns(items: RestoredDesign[]): void;
+
+  /** Set while mode is 'place'. */
+  placement: Placement | null;
+  startPlacing(speciesId: string, designId: string): void;
 
   entities: PlacedEntity[];
   addEntity(entity: Omit<PlacedEntity, 'id'> & { id?: string }): PlacedEntity;
@@ -59,13 +96,27 @@ interface AppState {
 
 export const useApp = create<AppState>((set, get) => ({
   mode: 'world',
-  setMode: (mode) => set({ mode }),
+  setMode: (mode) => set(mode === 'place' ? { mode } : { mode, placement: null }),
 
   designLevel: 1,
   setDesignLevel: (designLevel) => set({ designLevel }),
   studio: null,
-  openStudio: (speciesId, designId) => set({ studio: { speciesId, designId }, mode: 'studio' }),
-  closeStudio: () => set({ studio: null, mode: 'world' }),
+  openStudio: (speciesId, designId, options) =>
+    set({ studio: { speciesId, designId, ...options }, mode: 'studio', placement: null }),
+  closeStudio: () => {
+    const session = get().studio;
+    const created = session?.savedNewId;
+    if (session && created) {
+      if (session.applyTo) {
+        get().updateEntity(session.applyTo, { designId: created });
+        set({ studio: null, mode: 'world' });
+      } else {
+        set({ studio: null, mode: 'place', placement: { speciesId: session.speciesId, designId: created } });
+      }
+      return;
+    }
+    set({ studio: null, mode: session?.returnTo ?? 'world' });
+  },
 
   designs: {},
   saveDesign: ({ speciesId, designId, name, canvas, thumbnail }) => {
@@ -85,9 +136,31 @@ export const useApp = create<AppState>((set, get) => ({
     copy.getContext('2d')!.drawImage(canvas, 0, 0, DESIGN_TEX_WIDTH, DESIGN_TEX_HEIGHT);
     designSources.set(meta.id, copy);
     designTextures.setDesign(meta.id, copy);
-    set({ designs: { ...get().designs, [meta.id]: meta } });
+    const studio = get().studio;
+    const isNew = !prev;
+    set({
+      designs: { ...get().designs, [meta.id]: meta },
+      ...(studio && isNew ? { studio: { ...studio, savedNewId: meta.id } } : {}),
+    });
     return meta;
   },
+  restoreDesigns: (items) => {
+    if (items.length === 0) return;
+    const designs = { ...get().designs };
+    for (const { meta, source } of items) {
+      const copy = document.createElement('canvas');
+      copy.width = DESIGN_TEX_WIDTH;
+      copy.height = DESIGN_TEX_HEIGHT;
+      copy.getContext('2d')!.drawImage(source, 0, 0, DESIGN_TEX_WIDTH, DESIGN_TEX_HEIGHT);
+      designSources.set(meta.id, copy);
+      designTextures.setDesign(meta.id, copy);
+      designs[meta.id] = meta;
+    }
+    set({ designs });
+  },
+
+  placement: null,
+  startPlacing: (speciesId, designId) => set({ placement: { speciesId, designId }, mode: 'place', followId: null }),
   deleteDesign: (designId) => {
     const { [designId]: _removed, ...rest } = get().designs;
     designSources.delete(designId);

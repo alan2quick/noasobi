@@ -273,7 +273,8 @@ export function CameraRig() {
     } else {
       if (rig.following) {
         rig.following = null;
-        rig.targetGoal.copy(rig.target);
+        // Keep a glide started in the same tap that released the follow (its goal is already set).
+        if (!rig.glide.active) rig.targetGoal.copy(rig.target);
       }
       const g = rig.glide;
       if (g.active) {
