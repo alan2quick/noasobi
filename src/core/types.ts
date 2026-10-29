@@ -41,6 +41,26 @@ export interface SwimParams {
   schooling: number;
   neighbourRadius: number; // m
   bodyLength: number; // m, at scale 1
+  /** Never slow below this (sharks must keep swimming). Default 0: hovering allowed. */
+  minSpeed?: number;
+  /** How far it roams from its anchor, metres. Default comes from habitat.coverAffinity. */
+  roamRadius?: number;
+  /** 0 = only the tail beats (sharks) .. 1 = the whole body undulates. Default 0.5. */
+  bodyWave?: number;
+}
+
+/** Pulse-and-drift movement for jellyfish-like creatures (locomotion 'swim-jelly'). */
+export interface DriftParams {
+  /** Bell pulses per second while active. */
+  pulseRate: number;
+  /** Upward/forward speed gained per pulse, m/s. */
+  pulseThrust: number;
+  /** Gentle sinking speed between pulses, m/s. */
+  sinkSpeed: number;
+  /** Bell radius in metres at scale 1. */
+  bellRadius: number;
+  /** 0..1 strength of the soft glow at night. */
+  nightGlow: number;
 }
 
 export interface SpeciesDef {
@@ -72,6 +92,12 @@ export interface SpeciesDef {
   activity: Activity;
   habitat: HabitatPrefs;
   swim?: SwimParams;
+  drift?: DriftParams;
+  /**
+   * Smaller creatures keep their distance and scatter when it passes close. It never eats them:
+   * this is a cozy game.
+   */
+  predator?: boolean;
   /** Random scale range applied when placed. */
   scaleRange: [number, number];
   diet: 'flakes' | 'none';

@@ -3,6 +3,7 @@ import { useApp } from './core/store';
 import { OceanBiome } from './biomes/ocean/OceanBiome';
 import { Plants } from './render/Plants';
 import { Swimmers } from './render/Swimmers';
+import { Drifters } from './render/Drifters';
 import { SceneBridge } from './render/sceneRefs';
 import { DesignStudio } from './studio/DesignStudio';
 import { Hud } from './ui/Hud';
@@ -25,6 +26,7 @@ export function App() {
         <OceanBiome />
         <Plants />
         <Swimmers />
+        <Drifters />
         <WorldInteraction />
         <PlacementGhost />
         <SelectionMarker />
