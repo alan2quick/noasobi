@@ -1,0 +1,603 @@
+/* Design studio. Icon-first, touch-first; plain CSS. */
+.studio {
+  --btn: 56px;
+  --gap: 8px;
+  --ink: #3b3355;
+  --card: rgba(255, 255, 255, 0.82);
+  --accent: #ffb300;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-areas:
+    'top top top'
+    'tools view colors';
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  background:
+    radial-gradient(ellipse at 50% 45%, #fffdf6 0%, rgba(255, 253, 246, 0) 60%),
+    linear-gradient(180deg, #d9f1f7 0%, #eaf6ef 55%, #fbefdc 100%);
+  color: var(--ink);
+  font-family: inherit;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.studio.level-2 {
+  --btn: 50px;
+}
+.studio * {
+  box-sizing: border-box;
+}
+.studio button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.studio button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 8px 10px;
+}
+.topbar .spacer {
+  flex: 1;
+}
+.round {
+  width: var(--btn);
+  height: var(--btn);
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  background: var(--card);
+  box-shadow: 0 2px 6px rgba(59, 51, 85, 0.15);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: transform 0.08s;
+}
+.round:active:not(:disabled),
+.tool:active,
+.swatch:active {
+  transform: scale(0.92);
+}
+.round.on {
+  background: #fff3c4;
+  box-shadow: 0 0 0 3px var(--accent);
+}
+.round.save {
+  width: calc(var(--btn) * 1.25);
+  height: calc(var(--btn) * 1.25);
+  margin: calc(var(--btn) * -0.125) 0;
+  background: #43a047;
+  box-shadow: 0 3px 10px rgba(46, 125, 50, 0.45);
+}
+.level-toggle {
+  display: flex;
+  background: var(--card);
+  border-radius: calc(var(--btn) / 2);
+  padding: 4px;
+  gap: 4px;
+  box-shadow: 0 2px 6px rgba(59, 51, 85, 0.15);
+}
+.level-toggle button {
+  width: calc(var(--btn) - 8px);
+  height: calc(var(--btn) - 8px);
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  opacity: 0.5;
+}
+.level-toggle button.on {
+  background: #fff3c4;
+  box-shadow: 0 0 0 3px var(--accent);
+  opacity: 1;
+}
+
+/* ---------- 3D view ---------- */
+.view {
+  grid-area: view;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  touch-action: none;
+}
+.view canvas {
+  display: block;
+}
+.view-buttons {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: var(--gap);
+}
+.view-hint {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  background: var(--card);
+  border-radius: 24px;
+  padding: 4px 14px;
+  pointer-events: none;
+  animation: studio-bob 1.2s ease-in-out infinite;
+}
+@keyframes studio-bob {
+  50% {
+    transform: translate(-50%, 4px);
+  }
+}
+
+/* ---------- panels ---------- */
+.sheet {
+  display: contents;
+}
+.tabs {
+  display: none;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 12px;
+  overflow: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+.panel.tools {
+  grid-area: tools;
+}
+.panel.colors {
+  grid-area: colors;
+}
+.group {
+  display: grid;
+  grid-template-columns: repeat(2, var(--btn));
+  gap: var(--gap);
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.45);
+}
+.group.sizes {
+  grid-template-columns: repeat(3, calc(var(--btn) * 0.7));
+}
+.group.sizes .tool {
+  width: calc(var(--btn) * 0.7);
+  height: calc(var(--btn) * 0.7);
+}
+.tool {
+  width: var(--btn);
+  height: var(--btn);
+  border-radius: 16px;
+  border: none;
+  background: var(--card);
+  box-shadow: 0 2px 5px rgba(59, 51, 85, 0.12);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.08s;
+}
+.tool.on {
+  background: #fff3c4;
+  box-shadow: 0 0 0 3px var(--accent), 0 2px 5px rgba(59, 51, 85, 0.12);
+}
+.tool.pattern img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 14px;
+  pointer-events: none;
+}
+.tool.pattern.on img {
+  border: 3px solid #fff3c4;
+}
+.tool.bucket .bucket-swatch {
+  position: absolute;
+  inset: auto 6px 5px 6px;
+  height: 9px;
+  border-radius: 5px;
+  background-size: 40px 40px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.studio.level-1 .group .tool.bucket {
+  grid-column: span 2;
+  width: 100%;
+}
+
+/* colours */
+.wheel-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.wheel {
+  position: relative;
+  touch-action: none;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(59, 51, 85, 0.2);
+}
+.wheel canvas {
+  display: block;
+  border-radius: 50%;
+  touch-action: none;
+}
+.wheel-marker {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  border: 4px solid white;
+  box-shadow: 0 0 0 1.5px var(--ink), 0 2px 4px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(4, calc(var(--btn) * 0.72));
+  gap: 7px;
+}
+.swatch {
+  width: calc(var(--btn) * 0.72);
+  height: calc(var(--btn) * 0.72);
+  border-radius: 50%;
+  border: 3px solid white;
+  box-shadow: 0 1px 4px rgba(59, 51, 85, 0.35);
+  padding: 0;
+  transition: transform 0.08s;
+}
+.swatch.on {
+  box-shadow: 0 0 0 3px var(--accent), 0 1px 4px rgba(59, 51, 85, 0.35);
+  transform: scale(1.08);
+}
+.swatch.small {
+  width: 30px;
+  height: 30px;
+  border-width: 2px;
+}
+.recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: calc(var(--btn) * 3.2);
+}
+
+/* sliders */
+.sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 200px;
+}
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.slider > svg,
+.slider > .dot {
+  flex: none;
+}
+.slider .dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+}
+.slider .dot.sun {
+  color: #f9a825;
+}
+.slider-track {
+  position: relative;
+  flex: 1;
+  height: 30px;
+  border-radius: 15px;
+  background: linear-gradient(to right, rgba(59, 51, 85, 0.15), rgba(59, 51, 85, 0.35));
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+  touch-action: none;
+  cursor: pointer;
+}
+.slider-knob {
+  position: absolute;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 0 2px var(--ink), 0 2px 4px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.wheel-wrap .slider {
+  width: 100%;
+  min-width: 140px;
+}
+
+.name-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card);
+  border-radius: 16px;
+  padding: 4px 8px;
+  width: calc(var(--btn) * 2 + 20px);
+}
+.name-field input {
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  color: var(--ink);
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.only-portrait {
+  display: none;
+}
+
+/* ---------- confirm ---------- */
+.confirm {
+  position: absolute;
+  inset: 0;
+  background: rgba(40, 34, 60, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 5;
+  animation: studio-fade 0.15s;
+}
+@keyframes studio-fade {
+  from {
+    opacity: 0;
+  }
+}
+.confirm-card {
+  background: #fffdf6;
+  border-radius: 28px;
+  padding: 20px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+.confirm-buttons {
+  display: flex;
+  gap: 28px;
+}
+.round.big {
+  width: 84px;
+  height: 84px;
+}
+.round.yes {
+  background: #43a047;
+}
+.round.no {
+  background: #eceff1;
+}
+
+/* ---------- small landscape phones ---------- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .studio {
+    --btn: 46px;
+    --gap: 6px;
+  }
+  .studio.level-2 {
+    --btn: 42px;
+  }
+  .topbar {
+    padding: 4px 8px;
+  }
+  .panel {
+    gap: 8px;
+    padding: 4px 6px 8px;
+  }
+  .sliders {
+    width: 170px;
+  }
+}
+
+/* ---------- portrait: panels go below the model ---------- */
+@media (orientation: portrait) {
+  .studio {
+    grid-template-areas:
+      'top'
+      'view'
+      'sheet';
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .topbar {
+    gap: 6px;
+  }
+  .sheet {
+    grid-area: sheet;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.35);
+    border-radius: 22px 22px 0 0;
+  }
+  .panel {
+    flex-direction: row;
+    align-items: center;
+    justify-content: safe center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+  }
+  .panel.tools .group {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    grid-template-rows: repeat(2, var(--btn));
+  }
+  .panel.tools .group.sizes {
+    grid-template-rows: repeat(2, calc(var(--btn) * 0.7));
+  }
+  .studio.level-1 .group .tool.bucket {
+    grid-column: auto;
+    grid-row: span 2;
+    width: var(--btn);
+    height: 100%;
+  }
+  .panel.colors {
+    flex-wrap: nowrap;
+  }
+  .panel.colors .swatches {
+    grid-template-columns: repeat(4, calc(var(--btn) * 0.72));
+  }
+  .only-portrait {
+    display: block;
+  }
+  .only-landscape {
+    display: none;
+  }
+  .name-field {
+    align-self: center;
+  }
+}
+
+/* phone portrait: one panel at a time, switched with picture tabs */
+@media (orientation: portrait) and (max-height: 950px) {
+  .tabs {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    padding: 6px 0 0;
+  }
+  .tabs button {
+    position: relative;
+    width: 64px;
+    height: 40px;
+    border-radius: 20px;
+    border: none;
+    background: rgba(255, 255, 255, 0.6);
+    display: grid;
+    place-items: center;
+    padding: 0;
+  }
+  .tabs button.on {
+    background: #fff3c4;
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  .tab-dot {
+    position: absolute;
+    right: 6px;
+    bottom: 4px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid white;
+  }
+  .panel:not(.active) {
+    display: none;
+  }
+  .studio {
+    --btn: 52px;
+  }
+  .studio.level-2 {
+    --btn: 46px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 380px) {
+  .studio {
+    --btn: 46px;
+  }
+  .studio.level-2 {
+    --btn: 42px;
+  }
+}
+
+/* Level 2 brush sliders live under the colours in landscape */
+@media (orientation: landscape) {
+  .studio.level-2 .panel.colors {
+    min-width: 210px;
+  }
+  .panel.colors .sliders {
+    width: 190px;
+  }
+}
+
+/* portrait: sizes stack in one column and groups sit closer so Level 1 tools fit a phone */
+@media (orientation: portrait) {
+  .panel.tools {
+    gap: 8px;
+    padding: 8px 6px;
+  }
+  .panel.tools .group.sizes {
+    grid-template-rows: repeat(3, calc((var(--btn) * 2 + var(--gap) - 2 * 6px) / 3));
+    gap: 6px;
+  }
+  .panel.tools .group.sizes .tool {
+    width: calc((var(--btn) * 2 + var(--gap) - 2 * 6px) / 3);
+    height: calc((var(--btn) * 2 + var(--gap) - 2 * 6px) / 3);
+    border-radius: 50%;
+  }
+  .panel.tools .group.sizes .tool svg {
+    width: 80%;
+    height: 80%;
+  }
+  .group {
+    padding: 5px;
+  }
+}
+@media (orientation: portrait) and (max-width: 420px) {
+  .studio.level-1 {
+    --btn: 48px;
+  }
+}
+
+/* Level 2 portrait: tool groups wrap onto two lines instead of scrolling away */
+@media (orientation: portrait) {
+  .studio.level-2 .panel.tools {
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: 42vh;
+  }
+  .studio.level-2 .panel.colors {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+/* short landscape phones: squeeze Level 1 tools so the whole column fits without scrolling */
+@media (orientation: landscape) and (max-height: 420px) {
+  .studio.level-1 {
+    --btn: 44px;
+  }
+  .studio .panel {
+    gap: 6px;
+  }
+  .studio .group {
+    padding: 3px;
+    gap: 6px;
+  }
+}

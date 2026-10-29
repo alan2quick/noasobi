@@ -1,7 +1,8 @@
-import { CylinderGeometry } from 'three';
 import type { SpeciesDef } from '../../core/types';
+import { buildKelpGeometry } from './model';
+import { drawKelpTemplate } from './template';
 
-// Placeholder: replaced by the procedural kelp model.
+/** Giant kelp: tall swaying brown alga. Model in model.ts, UV layout documented in layout.ts. */
 export const kelp: SpeciesDef = {
   id: 'kelp',
   name: 'Kelp',
@@ -9,16 +10,10 @@ export const kelp: SpeciesDef = {
   biomes: ['ocean'],
   icon: '🌿',
   symmetry: 'none',
-  buildGeometry() {
-    const g = new CylinderGeometry(0.05, 0.08, 8, 5, 8);
-    g.translate(0, 4, 0);
-    return g;
-  },
-  drawTemplate(ctx) {
-    ctx.fillStyle = '#6b7d1f';
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  },
-  sideView: { direction: [0, 0, -1], up: [0, 1, 0] },
+  buildGeometry: buildKelpGeometry,
+  drawTemplate: drawKelpTemplate,
+  // Front view: camera on +Z looking toward -Z, +X on the right (blades spread left and right).
+  sideView: { direction: [0, 0, 1], up: [0, 1, 0] },
   locomotion: 'sway-plant',
   activity: 'always',
   habitat: { heightMin: 0, heightMax: 0, coverAffinity: 0 },

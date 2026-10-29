@@ -1,15 +1,35 @@
-// Placeholder: replaced by the ocean world (terrain, water, light, camera, day/night clock).
+import './water'; // installs the water fog chunks before any material compiles
+import { DayNightClock } from './DayNightClock';
+import { Seabed } from './Seabed';
+import { Rocks } from './Rocks';
+import { WaterBackdrop } from './WaterBackdrop';
+import { WaterSurface } from './WaterSurface';
+import { GodRays } from './GodRays';
+import { MarineSnow } from './MarineSnow';
+import { Bubbles } from './Bubbles';
+import { CameraRig } from '../../render/CameraRig';
+import { QualityManager, useQualityPreset } from '../../render/quality';
+import { Stats } from '../../render/Stats';
+
+/**
+ * The open-water ocean world: clock + lights, quality manager, camera rig, seabed, rocks, water
+ * volume (fog/backdrop/surface), god rays, marine snow and bubbles. Mount once inside the Canvas.
+ */
 export function OceanBiome() {
+  const q = useQualityPreset();
   return (
     <>
-      <color attach="background" args={['#0b3b5a']} />
-      <fog attach="fog" args={['#0b3b5a', 10, 90]} />
-      <hemisphereLight args={['#bfe8ff', '#36506a', 1.2]} />
-      <directionalLight position={[10, 30, 5]} intensity={1.5} />
-      <mesh rotation-x={-Math.PI / 2}>
-        <planeGeometry args={[240, 240]} />
-        <meshLambertMaterial color="#d9c79a" />
-      </mesh>
+      <QualityManager />
+      <DayNightClock />
+      <CameraRig />
+      <WaterBackdrop />
+      <Seabed />
+      <Rocks />
+      <WaterSurface />
+      {q.godRays > 0 && <GodRays count={q.godRays} />}
+      <MarineSnow count={q.snow} />
+      <Bubbles streams={q.bubbleStreams} />
+      <Stats />
     </>
   );
 }
