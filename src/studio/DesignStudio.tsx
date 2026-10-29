@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import type { BufferGeometry } from 'three';
-import { getDesignSource, getTemplateSource, useApp } from '../core/store';
+import { getDesignSource, useApp } from '../core/store';
 import { DESIGN_TEX_HEIGHT, DESIGN_TEX_WIDTH, type SpeciesDef } from '../core/types';
 import { getSpecies } from '../species';
 import { ColorWheel, Slider } from './ColorWheel';
@@ -55,11 +55,14 @@ function resolveSpecies(id: string): SpeciesDef {
   return getSpecies(id);
 }
 
-function drawTemplateCanvas(species: SpeciesDef): HTMLCanvasElement {
+/** The uncoloured colouring-book page (or the natural template for species without one). */
+function drawColoringPageCanvas(species: SpeciesDef): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = DESIGN_TEX_WIDTH;
   c.height = DESIGN_TEX_HEIGHT;
-  species.drawTemplate(c.getContext('2d')!);
+  const ctx = c.getContext('2d')!;
+  if (species.drawColoringPage) species.drawColoringPage(ctx);
+  else species.drawTemplate(ctx);
   return c;
 }
 
@@ -96,14 +99,16 @@ function Studio({ speciesId, designId }: { speciesId: string; designId?: string 
   useEffect(() => {
     const geometry = species.buildGeometry();
     const info = measureModel(geometry);
-    const template = (!STUDIO_TEST && getTemplateSource(species.id)) || drawTemplateCanvas(species);
-    const base = (designId && getDesignSource(designId)) || template;
+    // New designs start from the colouring page, and "start over" goes back to it. The natural
+    // look stays available as the species template in the catalog.
+    const page = drawColoringPageCanvas(species);
+    const base = (designId && getDesignSource(designId)) || page;
     // Pattern tiles about 56 canvas px, stretched so motifs stay round on the model.
     const a = info.unitsPerPxX;
     const b = info.unitsPerPxY;
     const T = 56;
     const tile = { x: T * Math.sqrt(b / a), y: T * Math.sqrt(a / b) };
-    const eng = new PaintEngine(base, template, species.symmetry, tile);
+    const eng = new PaintEngine(base, page, species.symmetry, tile);
     const unsub = eng.subscribe(setHistory);
     setEngine(eng);
     setModel({ geometry, info });

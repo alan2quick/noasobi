@@ -1,7 +1,7 @@
 /**
  * The studio paint stack.
  *
- *   base    species template or the design being edited (never painted on)
+ *   base    colouring page or the design being edited (never painted on)
  *   paint   everything the player painted; the eraser removes from here so the base shows again
  *   stroke  coverage mask of the stroke in progress (white stamps)
  *   display base + paint + live stroke, shown on the model through a CanvasTexture
@@ -298,7 +298,7 @@ export class PaintEngine {
     this.pushUndo({ patches });
   }
 
-  /** Start over: wipes the paint layer, and goes back to the species template when editing a design. */
+  /** Start over: wipes the paint layer, and goes back to the colouring page when editing a design. */
   clearAll() {
     if (this.style) this.cancelStroke();
     const entry: HistoryEntry = { patches: this.capture([FULL]) };

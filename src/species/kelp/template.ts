@@ -137,3 +137,102 @@ export function drawKelpTemplate(ctx: CanvasRenderingContext2D) {
   }
   ctx.restore();
 }
+
+/**
+ * Colouring-book page: white kelp with black outlines on the blades, bladders and holdfast knobs,
+ * a midrib on each blade and outlined stems, laid out exactly like the natural template.
+ */
+export function drawKelpColoringPage(ctx: CanvasRenderingContext2D) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const X = (u: number) => u * W;
+  const Y = (v: number) => (1 - v) * H;
+  const PAPER = '#fbfbf6';
+  const INK = '#121212';
+  let seed = 99;
+  const rand = () => {
+    seed = (seed * 16807) % 2147483647;
+    return seed / 2147483647;
+  };
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stipe: outline its front face (the middle half of the strip) and mark the holdfast top.
+  const sx0 = X(STIPE_U0);
+  const sx1 = X(STIPE_U1);
+  const q = (sx1 - sx0) / 4;
+  const hy = Y(HOLDFAST_V1);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(sx0 + q, 0);
+  ctx.lineTo(sx0 + q, hy);
+  ctx.moveTo(sx1 - q, 0);
+  ctx.lineTo(sx1 - q, hy);
+  ctx.moveTo(sx0 - 4, hy);
+  ctx.lineTo(sx1 + 4, hy);
+  ctx.stroke();
+  // Holdfast knobs as little outlined circles.
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 10; i++) {
+    ctx.beginPath();
+    ctx.arc(sx0 + rand() * (sx1 - sx0), hy + 6 + rand() * (H - hy - 10), 3 + rand() * 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  for (const b of BLADES) {
+    const row = bladeRow(b);
+    const pts = BLADE_T.map((t, i) => ({
+      x: X(row.uAt(BLADE_U_START + (BLADE_U_END - BLADE_U_START) * t)),
+      hw: row.vHalf * BLADE_HW[i] * H,
+    }));
+    const cy = Y(row.vMid);
+
+    // Stem from the stipe to the blade: an outlined white band.
+    ctx.beginPath();
+    ctx.moveTo(X(row.uAt(-0.004)), cy);
+    ctx.lineTo(pts[1].x, cy);
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.strokeStyle = PAPER;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Blade outline (inset slightly so the line stays on the blade, not in the seam padding).
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, cy);
+    for (let i = 0; i < pts.length; i++) ctx.lineTo(pts[i].x, cy - pts[i].hw * 0.94);
+    ctx.lineTo(pts[pts.length - 1].x, cy);
+    for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i].x, cy + pts[i].hw * 0.94);
+    ctx.closePath();
+    ctx.fillStyle = PAPER;
+    ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Midrib.
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[1].x, cy);
+    ctx.lineTo(pts[pts.length - 2].x, cy);
+    ctx.stroke();
+
+    // Gas bladder.
+    const bx = X(row.uAt(BLADDER_U_GAP + BLADDER_U_LEN / 2));
+    const brx = (BLADDER_U_LEN / 2) * W;
+    const bry = row.vHalf * H * 0.85;
+    ctx.beginPath();
+    ctx.ellipse(bx, cy, brx, bry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = PAPER;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}

@@ -61,6 +61,11 @@ export interface SpeciesDef {
   buildGeometry(): BufferGeometry;
   /** Paints the natural default colouring into a DESIGN_TEX_WIDTH x DESIGN_TEX_HEIGHT canvas. */
   drawTemplate(ctx: CanvasRenderingContext2D): void;
+  /**
+   * Uncoloured line art, like a colouring book page, used as the starting point for a new design.
+   * Same size and layout as drawTemplate. Falls back to drawTemplate when missing.
+   */
+  drawColoringPage?(ctx: CanvasRenderingContext2D): void;
   /** Camera for the Level 1 flat view, in local space. */
   sideView: { direction: [number, number, number]; up: [number, number, number] };
   locomotion: Locomotion;

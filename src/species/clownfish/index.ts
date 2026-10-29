@@ -1,6 +1,6 @@
 import type { SpeciesDef } from '../../core/types';
 import { buildClownfishGeometry } from './geometry';
-import { drawClownfishTemplate } from './template';
+import { drawClownfishColoringPage, drawClownfishTemplate } from './template';
 
 /**
  * Ocellaris clownfish. Geometry is 1 unit long (nose +X); the renderer scales it to
@@ -16,6 +16,7 @@ export const clownfish: SpeciesDef = {
   symmetry: 'bilateral',
   buildGeometry: buildClownfishGeometry,
   drawTemplate: drawClownfishTemplate,
+  drawColoringPage: drawClownfishColoringPage,
   // Left flank faces -Z: the flat view looks at the left flank, nose pointing left on screen.
   sideView: { direction: [0, 0, -1], up: [0, 1, 0] },
   locomotion: 'swim-fish',

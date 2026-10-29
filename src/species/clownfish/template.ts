@@ -120,16 +120,21 @@ function band(ctx: Ctx, front: [number, number][], back: [number, number][]) {
   ctx.stroke();
 }
 
-function drawFlank(ctx: Ctx) {
+/** `coloring`: white colouring-book page that keeps only the black outlines and bar edges. */
+function drawFlank(ctx: Ctx, coloring: boolean) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
   // Base colour: darker orange on the back, lighter belly. Covers all fins and islands too.
-  const g = ctx.createLinearGradient(0, 0.2, 0, -0.2);
-  g.addColorStop(0, ORANGE_TOP);
-  g.addColorStop(0.5, ORANGE_MID);
-  g.addColorStop(1, ORANGE_BELLY);
-  ctx.fillStyle = g;
+  if (coloring) {
+    ctx.fillStyle = WHITE;
+  } else {
+    const g = ctx.createLinearGradient(0, 0.2, 0, -0.2);
+    g.addColorStop(0, ORANGE_TOP);
+    g.addColorStop(0.5, ORANGE_MID);
+    g.addColorStop(1, ORANGE_BELLY);
+    ctx.fillStyle = g;
+  }
   ctx.fillRect(-0.6, -0.6, 1.2, 1.2);
 
   // Head bar: a crescent right behind the eye, over the gill cover, nape to throat.
@@ -173,8 +178,15 @@ function drawFlank(ctx: Ctx) {
   caudalEdgePath(ctx);
   ctx.stroke();
 
+  // Colouring page: outline the body so it reads as a separate region from the fins.
+  if (coloring) {
+    ctx.lineWidth = 0.014;
+    bodyPath(ctx, 1);
+    ctx.stroke();
+  }
+
   // Paired fin islands: orange pectoral with a thin dark rim, black-edged pelvic.
-  ctx.fillStyle = ORANGE_MID;
+  ctx.fillStyle = coloring ? WHITE : ORANGE_MID;
   islandPath(ctx, PECTORAL_ISLAND, PECTORAL_OUTLINE);
   ctx.fill();
   ctx.lineWidth = 0.016;
@@ -217,7 +229,7 @@ function dorsalPathInto(ctx: Ctx) {
   ctx.closePath();
 }
 
-export function drawClownfishTemplate(ctx: Ctx) {
+function drawBothFlanks(ctx: Ctx, coloring: boolean) {
   const W = ctx.canvas.width;
   const H = ctx.canvas.height;
   const sx = W / TEX_W;
@@ -225,9 +237,18 @@ export function drawClownfishTemplate(ctx: Ctx) {
   ctx.save();
   // Left flank: fish (x, y) → canvas (256 - k x, 256 - k y).
   ctx.setTransform(-PX_PER_UNIT * sx, 0, 0, -PX_PER_UNIT * sy, LEFT_ORIGIN_PX[0] * sx, LEFT_ORIGIN_PX[1] * sy);
-  drawFlank(ctx);
+  drawFlank(ctx, coloring);
   // Right flank: the horizontal mirror of the whole canvas.
   ctx.setTransform(PX_PER_UNIT * sx, 0, 0, -PX_PER_UNIT * sy, (TEX_W - LEFT_ORIGIN_PX[0]) * sx, LEFT_ORIGIN_PX[1] * sy);
-  drawFlank(ctx);
+  drawFlank(ctx, coloring);
   ctx.restore();
+}
+
+export function drawClownfishTemplate(ctx: Ctx) {
+  drawBothFlanks(ctx, false);
+}
+
+/** White colouring-book page: body and fin outlines plus the black edges of the three bars. */
+export function drawClownfishColoringPage(ctx: Ctx) {
+  drawBothFlanks(ctx, true);
 }
