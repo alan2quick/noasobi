@@ -75,6 +75,9 @@ const FAST_MS = 1000 / 57; // sustained frame time below this is "comfortable"
 const DOWN_AFTER = 2.5; // seconds of slow frames before stepping down
 const UP_AFTER = 10; // seconds of fast frames before stepping up
 const COOLDOWN = 2; // seconds ignored after any change (shader compiles, resize)
+const PROBE_SECONDS = 3; // seconds measured after a step down before judging it
+const PROBE_GAIN = 0.9; // a step down must cut frame time by at least 10% to count
+const CAPPED_SLOW_MS = 1000 / 24; // once capped, only step down if it gets worse than this
 
 /** Mounted once inside the Canvas. */
 export function QualityManager() {
@@ -88,6 +91,10 @@ export function QualityManager() {
     cooldown: COOLDOWN,
     failures: new Array(LADDER.length).fill(0) as number[],
     adaptive: true,
+    // After a step down, check that it actually helped. Phones in Low Power Mode cap at 30fps no
+    // matter what we draw; without this check they would fall all the way to the lowest step.
+    probe: null as { from: number; emaBefore: number; t: number } | null,
+    capped: false,
   });
 
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
@@ -134,8 +141,24 @@ export function QualityManager() {
       s.slow = Math.max(0, s.slow - delta);
     }
 
-    if (s.slow > DOWN_AFTER && s.index < LADDER.length - 1) {
+    if (s.probe) {
+      s.probe.t += delta;
+      if (s.probe.t < PROBE_SECONDS) return;
+      if (s.ema > s.probe.emaBefore * PROBE_GAIN) {
+        // No real gain: frame rate is capped by the display or power mode, not by our rendering.
+        const from = s.probe.from;
+        s.probe = null;
+        s.capped = true;
+        apply(from);
+        return;
+      }
+      s.probe = null;
+    }
+
+    const mayStepDown = !s.capped || s.ema > CAPPED_SLOW_MS;
+    if (s.slow > DOWN_AFTER && mayStepDown && s.index < LADDER.length - 1) {
       s.failures[s.index]++;
+      s.probe = { from: s.index, emaBefore: s.ema, t: 0 };
       let next = s.index + 1;
       // Skip steps that change nothing on this device (e.g. DPR steps on a DPR-1 screen).
       while (
