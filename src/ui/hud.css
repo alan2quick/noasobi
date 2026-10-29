@@ -527,3 +527,42 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+
+/* ── Install ──────────────────────────────────────────────────────────────────────────── */
+.hud .hud-install {
+  position: absolute;
+  top: calc(var(--safe-t) + 12px);
+  right: calc(var(--safe-r) + 12px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+}
+.hud .hud-install-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: var(--glass-strong);
+  box-shadow: 0 3px 10px rgba(10, 40, 70, 0.22);
+  font-size: 24px;
+  white-space: nowrap;
+}
+.hud .hud-install-hint .step {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #eef4fb;
+}
+.hud .hud-install-hint .arrow {
+  font-size: 20px;
+  opacity: 0.6;
+}
+.hud .hud-install-hint .text {
+  font-size: 14px;
+  font-weight: 700;
+}

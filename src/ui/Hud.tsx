@@ -7,6 +7,7 @@ import { sound } from '../audio/engine';
 import { Catalog } from './Catalog';
 import { CreatureCard } from './CreatureCard';
 import { IconButton } from './IconButton';
+import { InstallButton } from './InstallButton';
 import { useIsNight, useTemplateThumb } from './hooks';
 import { trySpecies } from './speciesInfo';
 import { useUi } from './uiStore';
@@ -40,6 +41,7 @@ export function Hud() {
     <div className="hud">
       {mode === 'world' && <CreatureCard />}
       {mode === 'world' && <MainBar />}
+      {mode === 'world' && <InstallButton />}
       {mode === 'catalog' && <Catalog />}
       {mode === 'place' && <PlaceBar />}
       {mode === 'edit' && <EditBar />}
