@@ -57,7 +57,7 @@ function bind(mesh: InstancedMesh, batch: FishBatch) {
 
 function FishBatchMesh({ batch }: { batch: FishBatch }) {
   const mesh = useMemo(() => {
-    const m = new InstancedMesh(batch.species.buildGeometry(), createSwimMaterial(), batch.capacity);
+    const m = new InstancedMesh(batch.species.buildGeometry(), createSwimMaterial(batch.species.swim?.bodyWave), batch.capacity);
     // Fish roam the whole world, so a per-batch bounding sphere would almost never cull anything;
     // skipping the test also saves recomputing the sphere every frame.
     m.frustumCulled = false;

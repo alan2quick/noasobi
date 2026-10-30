@@ -1,7 +1,13 @@
-import { SphereGeometry } from 'three';
 import type { SpeciesDef } from '../../core/types';
+import { buildJellyfishGeometry } from './geometry';
+import { BELL_R } from './layout';
+import { drawJellyfishColoringPage, drawJellyfishTemplate } from './template';
 
-// Placeholder: replaced by the procedural jellyfish model.
+/**
+ * Moon jelly (Aurelia aurita): a pale, translucent, glowing drifter. Geometry is in metres at
+ * scale 1 (bell radius BELL_R, tentacles hang about 0.6 m); see layout.ts for the UV layout and
+ * geometry.ts for the animation attributes. Sim: src/sim/jellySim.ts, renderer: Drifters.tsx.
+ */
 export const jellyfish: SpeciesDef = {
   id: 'jellyfish',
   name: 'Jellyfish',
@@ -9,19 +15,17 @@ export const jellyfish: SpeciesDef = {
   biomes: ['ocean'],
   icon: '🪼',
   symmetry: 'none',
-  buildGeometry() {
-    const g = new SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-    return g;
-  },
-  drawTemplate(ctx) {
-    ctx.fillStyle = '#f3b7d6';
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  },
-  sideView: { direction: [0, 0, 1], up: [0, 1, 0] },
+  buildGeometry: buildJellyfishGeometry,
+  drawTemplate: drawJellyfishTemplate,
+  drawColoringPage: drawJellyfishColoringPage,
+  // Studio Level 1 looks at the bell from the front and a little above, so the gonad rings on top
+  // of the dome stay visible while the tentacles still hang in view. up is +Y.
+  sideView: { direction: [0, 0.42, 1], up: [0, 1, 0] },
   locomotion: 'swim-jelly',
   activity: 'always',
+  // Open water, well off the seabed.
   habitat: { heightMin: 3, heightMax: 14, coverAffinity: 0 },
-  drift: { pulseRate: 0.7, pulseThrust: 0.35, sinkSpeed: 0.08, bellRadius: 0.35, nightGlow: 0.8 },
+  drift: { pulseRate: 0.7, pulseThrust: 0.35, sinkSpeed: 0.08, bellRadius: BELL_R, nightGlow: 0.8 },
   scaleRange: [0.7, 1.3],
   diet: 'none',
 };

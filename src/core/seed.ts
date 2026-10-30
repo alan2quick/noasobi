@@ -52,4 +52,28 @@ export function seedDemoWorld() {
       });
     }
   }
+
+  // A few jellies drifting above the groves, and one shark patrolling the open sand.
+  const jelly = getSpecies('jellyfish');
+  for (let i = 0; i < 6; i++) {
+    const x = (rand() - 0.5) * 40;
+    const z = -10 + (rand() - 0.5) * 40;
+    app.addEntity({
+      speciesId: jelly.id,
+      designId: templateDesignId(jelly.id),
+      name: jelly.name,
+      position: [x, terrainHeight(x, z) + 5 + rand() * 5, z],
+      rotationY: 0,
+      scale: jelly.scaleRange[0] + rand() * (jelly.scaleRange[1] - jelly.scaleRange[0]),
+    });
+  }
+  const shark = getSpecies('shark');
+  app.addEntity({
+    speciesId: shark.id,
+    designId: templateDesignId(shark.id),
+    name: shark.name,
+    position: [0, terrainHeight(0, -20) + 5, -20],
+    rotationY: 0,
+    scale: 1,
+  });
 }

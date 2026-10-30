@@ -31,8 +31,15 @@ import {
  *
  * Per frame (all fish): kinematics (turn towards the desired direction at turnRate, speed easing,
  * bank/pitch), tail/pectoral phase integration, transforms + render buffers.
- * Steering (wander, habitat band, home, bounds, schooling, cover, food) runs at a camera-distance
- * LOD: near fish every frame, far fish every 2/4/8 frames with the accumulated dt.
+ * Steering (wander, habitat band, home, bounds, schooling, cover, food, predators) runs at a
+ * camera-distance LOD: near fish every frame, far fish every 2/4/8 frames with the accumulated dt.
+ *
+ * Optional species features (all absent => the original small-reef-fish behaviour, bit for bit):
+ *  - swim.minSpeed : a "cruiser" never hovers, stops or glides below that speed, wanders in slow
+ *                    wide arcs and moves with the inertia of a large animal (see SpeciesInfo).
+ *  - swim.roamRadius: replaces the home radius derived from cover affinity.
+ *  - predator      : smaller fish keep their distance, startle with a short burst, then calm down.
+ *                    It never harms anything.
  */
 
 const enum Mode {
@@ -66,6 +73,19 @@ interface SpeciesInfo {
   def: SpeciesDef;
   batch: FishBatch;
   homeRadius: number;
+  /** Floor for the swimming speed (0 = may hover). */
+  minSpeed: number;
+  /** minSpeed > 0: swims continuously in slow, smooth arcs. */
+  cruiser: boolean;
+  predator: boolean;
+  /** Size relative to a reef fish (>= 1; exactly 1 below 0.6 m). Scales body bend with size. */
+  sizeK: number;
+  /** sqrt(sizeK): how sluggishly big animals bank, pitch and turn. 1 for reef fish. */
+  inertia: number;
+  /** Tail beat frequency factor: big animals beat slower (1 up to 0.3 m). */
+  hzK: number;
+  /** Tail amplitude factor for low bodyWave (tail-driven swimmers swing the tail wider). */
+  ampK: number;
 }
 
 /** Resolves a design id to a texture layer (injected so the sim stays testable without DOM). */
@@ -74,13 +94,19 @@ export type LayerResolver = (designId: string, speciesId: string) => number;
 const FIELDS = [
   'px', 'py', 'pz', 'ax', 'ay', 'az', 'yaw', 'pitch', 'roll', 'speed', 'tSpeed', 'yawRate',
   'dX', 'dY', 'dZ', 'wYaw', 'wYawT', 'wPitch', 'wTimer', 'modeT', 'tailPh', 'tailAmp', 'pecPh',
-  'pecAmp', 'thrust', 'bend', 'scale', 'seed', 'steerAcc', 'coverT', 'feed',
+  'pecAmp', 'thrust', 'bend', 'scale', 'seed', 'steerAcc', 'coverT', 'feed', 'scare',
 ] as const;
 type Field = (typeof FIELDS)[number];
 
 const MAX_NEIGHBOURS = 64;
 const COVER_SENSE = 8;
 const FOOD_SENSE = 5;
+/** Predator scratch data per predator: x, y, z, forward xyz, reach, fish index. */
+const PRED_STRIDE = 8;
+/** Distance at which smaller fish start to give a predator room: 5..7 m, scaling with its size. */
+export function predatorReach(bodyLength: number, scale: number) {
+  return clamp(bodyLength * scale * 2.6, 5, 7);
+}
 
 export class FishSim {
   n = 0;
@@ -107,6 +133,9 @@ export class FishSim {
   private plantZ = new Float32Array(0);
   private plantN = 0;
   private plantCandidates = new Int32Array(128);
+
+  private predData = new Float32Array(PRED_STRIDE * 8);
+  private predN = 0;
 
   private frame = 0;
   private time = 0;
@@ -152,9 +181,19 @@ export class FishSim {
     if (si !== undefined) return si;
     si = this.speciesList.length;
     const cap = 32;
+    const sw = def.swim!;
+    const minSpeed = sw.minSpeed ?? 0;
+    const sizeK = Math.max(1, sw.bodyLength / 0.6);
     this.speciesList.push({
       def,
-      homeRadius: 3 + 12 * (1 - def.habitat.coverAffinity),
+      homeRadius: sw.roamRadius ?? 3 + 12 * (1 - def.habitat.coverAffinity),
+      minSpeed,
+      cruiser: minSpeed > 0,
+      predator: !!def.predator,
+      sizeK,
+      inertia: Math.sqrt(sizeK),
+      hzK: Math.min(1, Math.pow(0.3 / sw.bodyLength, 0.7)),
+      ampK: Math.max(1, 1 + (0.5 - (sw.bodyWave ?? 0.5)) * 1.6),
       batch: {
         species: def,
         capacity: cap,
@@ -254,7 +293,7 @@ export class FishSim {
     F.yaw[i] = wrapAngle(e.rotationY);
     F.dX[i] = Math.cos(e.rotationY);
     F.dZ[i] = -Math.sin(e.rotationY);
-    F.speed[i] = sw.cruiseSpeed * 0.5;
+    F.speed[i] = Math.max(sw.cruiseSpeed * 0.5, sw.minSpeed ?? 0);
     F.tSpeed[i] = sw.cruiseSpeed;
     F.scale[i] = e.scale;
     F.seed[i] = this.rand();
@@ -360,6 +399,18 @@ export class FishSim {
     return this.index.get(id) ?? -1;
   }
 
+  /** Current swimming speed (m/s) of a fish, or -1. */
+  speedOf(id: string) {
+    const i = this.index.get(id);
+    return i === undefined ? -1 : this.f.speed[i];
+  }
+
+  /** True while a fish is keeping its distance from a nearby predator. */
+  isScared(id: string) {
+    const i = this.index.get(id);
+    return i !== undefined && this.f.scare[i] > 0;
+  }
+
   // ── Step ─────────────────────────────────────────────────────────────────────────────────────
   step(dt: number, camX: number, camY: number, camZ: number) {
     if (dt <= 0) return;
@@ -369,6 +420,7 @@ export class FishSim {
     for (let i = 0; i < this.n; i++) F.steerAcc[i] += dt;
     this.hash.build(F.px, F.py, F.pz, this.n);
     const daylight = runtime.daylight;
+    this.collectPredators();
     for (let i = 0; i < this.n; i++) {
       const dx = F.px[i] - camX, dy = F.py[i] - camY, dz = F.pz[i] - camZ;
       const interval = lodInterval(dx * dx + dy * dy + dz * dz);
@@ -381,6 +433,33 @@ export class FishSim {
       this.integrate(i, dt, daylight);
       this.writeOut(i);
     }
+  }
+
+  /** Snapshot of every predator's position, heading and reach (a handful, so a flat scratch array). */
+  private collectPredators() {
+    const F = this.f;
+    let k = 0;
+    for (let i = 0; i < this.n; i++) {
+      if (!this.speciesList[this.species[i]].predator) continue;
+      if ((k + 1) * PRED_STRIDE > this.predData.length) {
+        const bigger = new Float32Array(this.predData.length * 2);
+        bigger.set(this.predData);
+        this.predData = bigger;
+      }
+      const o = k * PRED_STRIDE;
+      const d = this.predData;
+      const cp = Math.cos(F.pitch[i]);
+      d[o] = F.px[i];
+      d[o + 1] = F.py[i];
+      d[o + 2] = F.pz[i];
+      d[o + 3] = Math.cos(F.yaw[i]) * cp;
+      d[o + 4] = Math.sin(F.pitch[i]);
+      d[o + 5] = -Math.sin(F.yaw[i]) * cp;
+      d[o + 6] = predatorReach(this.speciesList[this.species[i]].def.swim!.bodyLength, F.scale[i]);
+      d[o + 7] = i;
+      k++;
+    }
+    this.predN = k;
   }
 
   private steer(i: number, dt: number, daylight: number) {
@@ -397,13 +476,21 @@ export class FishSim {
     const len = sw.bodyLength * F.scale[i];
 
     // Wander: a smoothly drifting heading offset, retargeted every few seconds.
+    const cruiser = info.cruiser;
     F.wTimer[i] -= dt;
     if (F.wTimer[i] <= 0) {
-      F.wTimer[i] = 1.5 + this.rand() * 4;
-      F.wYawT[i] = (this.rand() - 0.5) * 2.4 * (1 - 0.6 * rest);
-      F.wPitch[i] = (this.rand() - 0.5) * 0.6;
+      if (cruiser) {
+        // Big, unhurried animal: long gentle bends and slow depth changes.
+        F.wTimer[i] = 5 + this.rand() * 7;
+        F.wYawT[i] = (this.rand() - 0.5) * 0.9;
+        F.wPitch[i] = (this.rand() - 0.5) * 0.8;
+      } else {
+        F.wTimer[i] = 1.5 + this.rand() * 4;
+        F.wYawT[i] = (this.rand() - 0.5) * 2.4 * (1 - 0.6 * rest);
+        F.wPitch[i] = (this.rand() - 0.5) * 0.6;
+      }
     }
-    F.wYaw[i] = damp(F.wYaw[i], F.wYawT[i], 1.2, dt);
+    F.wYaw[i] = damp(F.wYaw[i], F.wYawT[i], cruiser ? 0.4 : 1.2, dt);
     const wy = F.yaw[i] + F.wYaw[i];
     let ddx = Math.cos(wy);
     let ddz = -Math.sin(wy);
@@ -413,8 +500,9 @@ export class FishSim {
     const homeR = info.homeRadius * (1 - 0.5 * rest);
     const hx = F.ax[i] - px, hz = F.az[i] - pz;
     const hd = Math.hypot(hx, hz);
-    if (hd > homeR * 0.35) {
-      const k = smoothstep(homeR * 0.35, homeR, hd) * 2.2 + (hd > homeR ? (hd - homeR) * 0.5 : 0);
+    const homeIn = cruiser ? 0.55 : 0.35; // wide-ranging animals roam freely over more of their area
+    if (hd > homeR * homeIn) {
+      const k = smoothstep(homeR * homeIn, homeR, hd) * 2.2 + (hd > homeR ? (hd - homeR) * 0.5 : 0);
       ddx += (hx / hd) * k;
       ddz += (hz / hd) * k;
     }
@@ -483,7 +571,8 @@ export class FishSim {
 
     // Habitat height band (lower when resting), looking a little ahead for rising seabed.
     const ground = terrainHeight(px, pz);
-    const aheadGround = terrainHeight(px + fx * 1.2, pz + fz * 1.2);
+    const look = Math.max(1.2, len * 2.5); // big animals look further ahead for rising seabed
+    const aheadGround = terrainHeight(px + fx * look, pz + fz * look);
     const h = py - Math.max(ground, aheadGround - 0.2);
     const bandMin = hab.heightMin * (1 - 0.4 * rest);
     const bandMax = hab.heightMax + (hab.heightMin + 0.4 - hab.heightMax) * rest;
@@ -516,6 +605,59 @@ export class FishSim {
       }
     }
 
+    // Predators: give them room. Fish within reach steer away, more firmly when the predator is
+    // close and heading their way, and sidestep its path rather than running ahead of it.
+    let threat = 0;
+    if (this.predN > 0 && !info.predator) {
+      const pd = this.predData;
+      let wx = 0, wy = 0, wz = 0;
+      for (let k = 0; k < this.predN; k++) {
+        const o = k * PRED_STRIDE;
+        const reach = pd[o + 6];
+        const ox = px - pd[o], oy = py - pd[o + 1], oz = pz - pd[o + 2];
+        if (ox > reach || ox < -reach || oz > reach || oz < -reach || oy > reach || oy < -reach) continue;
+        const d2 = ox * ox + oy * oy + oz * oz;
+        if (d2 >= reach * reach) continue;
+        const dist = Math.sqrt(d2) || 1e-3;
+        const near = 1 - dist / reach;
+        const along = ox * pd[o + 3] + oy * pd[o + 4] + oz * pd[o + 5]; // metres ahead of the predator
+        const ahead = along / dist; // 1 = dead ahead
+        const s = near * near * (0.45 + 0.55 * smoothstep(-0.3, 0.8, ahead));
+        // Direction: straight away when beside/behind, along the sidestep when in its path.
+        const il = 1 / dist;
+        let sx = ox * il, sy = oy * il * 0.5, sz = oz * il;
+        if (along > 0) {
+          let qx = ox - along * pd[o + 3], qy = (oy - along * pd[o + 4]) * 0.5, qz = oz - along * pd[o + 5];
+          let ql = Math.hypot(qx, qy, qz);
+          if (ql < 0.1) {
+            // Right in front: break to a side (a stable choice per fish).
+            const side = F.seed[i] < 0.5 ? 1 : -1;
+            qx = pd[o + 5] * side;
+            qy = 0;
+            qz = -pd[o + 3] * side;
+            ql = Math.hypot(qx, qz) || 1;
+          }
+          const mix = clamp(ahead, 0, 1);
+          sx = (qx / ql) * mix + sx * (1 - mix);
+          sy = (qy / ql) * mix + sy * (1 - mix);
+          sz = (qz / ql) * mix + sz * (1 - mix);
+        }
+        const sl = Math.hypot(sx, sy, sz) || 1;
+        wx += (sx / sl) * s;
+        wy += (sy / sl) * s;
+        wz += (sz / sl) * s;
+        threat += s;
+      }
+      if (threat > 0) {
+        const k = Math.min(1, threat * 2.2);
+        const inv = 3 / threat;
+        ddx = ddx * (1 - k) + wx * inv * k;
+        ddy = ddy * (1 - k) + wy * inv * k;
+        ddz = ddz * (1 - k) + wz * inv * k;
+        if (k > 0.5) F.feed[i] = -1; // too busy fleeing to chase food
+      }
+    }
+
     const dl = Math.hypot(ddx, ddy, ddz);
     if (dl > 1e-5) {
       F.dX[i] = ddx / dl;
@@ -525,7 +667,7 @@ export class FishSim {
 
     // Burst-and-glide rhythm with hovering pauses.
     F.modeT[i] -= dt;
-    if (F.modeT[i] <= 0) this.nextMode(i, sw.cruiseSpeed, sw.maxSpeed, rest);
+    if (F.modeT[i] <= 0) this.nextMode(i, info, rest);
     // Strayed far or feeding: keep moving with purpose.
     const far = hd > homeR * 1.2 || h < bandMin * 0.5;
     if (F.feed[i] >= 0) {
@@ -547,10 +689,40 @@ export class FishSim {
       F.modeT[i] = 2;
       F.tSpeed[i] = sw.cruiseSpeed;
     }
+
+    // Startle: one short burst the moment a predator comes close, then brisk swimming while it is
+    // still near and a calm return afterwards (the scare timer runs out ~1 s after it leaves).
+    if (F.scare[i] > 0) F.scare[i] = F.scare[i] > dt ? F.scare[i] - dt : 0;
+    if (threat > 0.03) {
+      const startled = F.scare[i] <= 0;
+      F.scare[i] = 1;
+      if (startled) {
+        this.mode[i] = Mode.Burst;
+        F.modeT[i] = 0.45 + this.rand() * 0.3;
+        F.tSpeed[i] = sw.maxSpeed * (0.75 + 0.25 * Math.min(1, threat * 3));
+      }
+    }
+    if (F.scare[i] > 0 && this.mode[i] !== Mode.Burst) {
+      if (this.mode[i] !== Mode.Cruise) {
+        this.mode[i] = Mode.Cruise;
+        F.modeT[i] = 1;
+      }
+      F.tSpeed[i] = Math.max(F.tSpeed[i], sw.cruiseSpeed * 1.5);
+    }
   }
 
-  private nextMode(i: number, cruise: number, max: number, rest: number) {
+  private nextMode(i: number, info: SpeciesInfo, rest: number) {
     const F = this.f;
+    const sw = info.def.swim!;
+    const cruise = sw.cruiseSpeed;
+    const max = sw.maxSpeed;
+    if (info.cruiser) {
+      // Never stops: a steady pace that drifts a little around cruise speed.
+      this.mode[i] = Mode.Cruise;
+      F.modeT[i] = 4 + this.rand() * 6;
+      F.tSpeed[i] = clamp(cruise * (0.8 + this.rand() * 0.4), info.minSpeed, max);
+      return;
+    }
     const r = this.rand();
     const prev = this.mode[i];
     let next: Mode;
@@ -598,8 +770,11 @@ export class FishSim {
 
   private integrate(i: number, dt: number, daylight: number) {
     const F = this.f;
-    const def = this.speciesList[this.species[i]].def;
+    const info = this.speciesList[this.species[i]];
+    const def = info.def;
     const sw = def.swim!;
+    const cruiser = info.cruiser;
+    const inertia = info.inertia;
     const mode = this.mode[i];
     const act = activityLevel(def.activity, daylight);
     let speed = F.speed[i];
@@ -608,17 +783,20 @@ export class FishSim {
     const dYaw = yawOf(F.dX[i], F.dZ[i]);
     const horiz = Math.hypot(F.dX[i], F.dZ[i]);
     const speedK = Math.min(1, speed / sw.cruiseSpeed);
-    const cap = sw.turnRate * (0.45 + 0.55 * speedK) * (F.feed[i] >= 0 ? 1.4 : 1);
+    const cap = sw.turnRate * (0.45 + 0.55 * speedK) * (F.feed[i] >= 0 ? 1.4 : 1) * (F.scare[i] > 0 ? 1.6 : 1);
     const diff = horiz > 1e-4 ? angleDelta(F.yaw[i], dYaw) : 0;
-    F.yawRate[i] = damp(F.yawRate[i], clamp(diff * 2.2, -cap, cap), 6, dt);
+    // Big animals respond gently (lower gain) and sluggishly (inertia); reef fish: 2.2 and 1.
+    F.yawRate[i] = damp(F.yawRate[i], clamp(diff * (cruiser ? 0.5 : 2.2), -cap, cap), 6 / inertia, dt);
     F.yaw[i] = wrapAngle(F.yaw[i] + F.yawRate[i] * dt);
-    const dPitch = clamp(Math.atan2(F.dY[i], horiz), -0.6, 0.6) * Math.min(1, 0.25 + speedK);
-    F.pitch[i] = damp(F.pitch[i], dPitch, 2.5, dt);
+    const pitchMax = cruiser ? 0.3 : 0.6;
+    const dPitch = clamp(Math.atan2(F.dY[i], horiz), -pitchMax, pitchMax) * Math.min(1, 0.25 + speedK);
+    F.pitch[i] = damp(F.pitch[i], dPitch, 2.5 / inertia, dt);
 
     // Speed: quick to accelerate in a burst, long low-drag glides.
     const tS = F.tSpeed[i];
     if (speed < tS) speed = approach(speed, tS, (mode === Mode.Burst ? sw.maxSpeed * 3 : sw.cruiseSpeed * 1.2) * dt);
     else speed = damp(speed, tS, mode === Mode.Glide ? 0.7 : 1.8, dt);
+    if (speed < info.minSpeed) speed = info.minSpeed; // cruisers never stop, whatever the mode
     F.speed[i] = speed;
 
     // Tail effort: hard in bursts, none while gliding, gentle while cruising/hovering.
@@ -630,8 +808,8 @@ export class FishSim {
     F.thrust[i] = damp(F.thrust[i], thrustT, mode === Mode.Glide ? 5 : 10, dt);
     const thrust = F.thrust[i];
     const turn = Math.abs(F.yawRate[i]);
-    F.tailAmp[i] = 0.012 + 0.11 * thrust + Math.min(0.04, turn * 0.012);
-    const tailHz = 0.8 + 6.5 * thrust + turn * 0.4;
+    F.tailAmp[i] = (0.012 + 0.11 * thrust + Math.min(0.04, turn * 0.012)) * info.ampK;
+    const tailHz = (0.8 + 6.5 * thrust + turn * 0.4) * info.hzK; // big animals beat slower
     F.tailPh[i] = (F.tailPh[i] + TAU * tailHz * dt) % TAU;
 
     // Pectorals: busy when slow (hovering, manoeuvring), tucked in fast swimming.
@@ -640,8 +818,8 @@ export class FishSim {
     F.pecPh[i] = (F.pecPh[i] + TAU * (2.2 + 2 * F.pecAmp[i]) * dt) % TAU;
 
     // Body C-bend into turns and banking.
-    F.bend[i] = damp(F.bend[i], clamp(F.yawRate[i] * 0.045, -0.12, 0.12), 8, dt);
-    F.roll[i] = damp(F.roll[i], clamp(-F.yawRate[i] * Math.min(speed, 1.2) * 0.28, -0.4, 0.4), 5, dt);
+    F.bend[i] = damp(F.bend[i], clamp(F.yawRate[i] * 0.045 * info.sizeK, -0.12, 0.12), 8 / inertia, dt);
+    F.roll[i] = damp(F.roll[i], clamp(-F.yawRate[i] * Math.min(speed, 1.2) * 0.28 * inertia, -0.4, 0.4), 5 / inertia, dt);
 
     // Move.
     const cp = Math.cos(F.pitch[i]);
@@ -650,7 +828,7 @@ export class FishSim {
     let pz = F.pz[i] - Math.sin(F.yaw[i]) * cp * speed * dt;
     // Slow fish adjust depth with their fins (settling at night, rising off the seabed) without
     // having to pitch, plus a gentle hover bob.
-    py += clamp(F.dY[i], -1, 1) * 0.3 * (1 - speedK) * dt;
+    py += clamp(F.dY[i], -1, 1) * 0.3 * (cruiser ? 0 : 1 - speedK) * dt;
     py += Math.sin(this.time * 1.7 + F.seed[i] * 40) * 0.025 * F.pecAmp[i] * dt;
 
     const len = sw.bodyLength * F.scale[i];

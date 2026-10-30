@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Euler, Matrix4, Quaternion, Vector3, BufferGeometry } from 'three';
 import { SpatialHash } from './spatialHash';
 import {
@@ -13,9 +13,9 @@ import {
   wrapAngle,
   yawOf,
 } from './steering';
-import { FishSim } from './fishSim';
+import { FishSim, predatorReach } from './fishSim';
 import { runtime } from '../core/runtime';
-import { terrainHeight } from '../core/terrain';
+import { SURFACE_Y, terrainHeight } from '../core/terrain';
 import type { PlacedEntity, SpeciesDef } from '../core/types';
 import { clearFood, nearestFood, spawnFood, stepFood } from './food';
 
@@ -156,7 +156,17 @@ const fishDef: SpeciesDef = {
   diet: 'flakes',
 };
 const plantDef: SpeciesDef = { ...fishDef, id: 'testplant', kind: 'plant', locomotion: 'sway-plant', swim: undefined, diet: 'none' };
-const defs: Record<string, SpeciesDef> = { testfish: fishDef, testplant: plantDef };
+/** A shark-like cruiser/predator: continuous slow wide swimming, roams far, scatters small fish. */
+const sharkDef: SpeciesDef = {
+  ...fishDef,
+  id: 'testshark',
+  activity: 'always',
+  habitat: { heightMin: 2, heightMax: 9, coverAffinity: 0 },
+  swim: { cruiseSpeed: 1, maxSpeed: 2.2, turnRate: 0.3, schooling: 0, neighbourRadius: 8, bodyLength: 2.2, minSpeed: 0.6, roamRadius: 35, bodyWave: 0.15 },
+  predator: true,
+  diet: 'none',
+};
+const defs: Record<string, SpeciesDef> = { testfish: fishDef, testplant: plantDef, testshark: sharkDef };
 const getDef = (id: string) => {
   const d = defs[id];
   if (!d) throw new Error(id);
@@ -226,5 +236,181 @@ describe('FishSim', () => {
       sim.step(1 / 60, 0, 2, 5);
     }
     expect(runtime.food.length).toBe(0);
+  });
+});
+
+function shark(id: string, x: number, y: number, z: number, rotationY = 0): PlacedEntity {
+  return { id, speciesId: 'testshark', designId: 'template:testshark', name: id, position: [x, y, z], rotationY, scale: 1 };
+}
+const yawOfQuat = (q: Quaternion) => {
+  const f = new Vector3(1, 0, 0).applyQuaternion(q);
+  return Math.atan2(-f.z, f.x);
+};
+
+describe('FishSim reef fish are unchanged by the cruiser/predator features', () => {
+  it('reproduces the recorded behaviour of the original sim, bit for bit', () => {
+    let sd = 12345;
+    const spy = vi.spyOn(Math, 'random').mockImplementation(() => (sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296);
+    runtime.transforms.clear();
+    clearFood();
+    const sim = new FishSim(getDef);
+    const ents = Array.from({ length: 40 }, (_, k) => fish(`f${k}`, (k % 10) * 2, Math.floor(k / 10) * 2));
+    ents.push({ ...fish('p0', 5, 5), speciesId: 'testplant' }, { ...fish('p1', 12, 3), speciesId: 'testplant' });
+    sim.sync(ents);
+    const b = sim.batchFor(fishDef);
+    const out: number[] = [];
+    for (let f = 0; f < 900; f++) {
+      if (f === 300) spawnFood(new Vector3(4, terrainHeight(4, 2) + 1.5, 2), 5);
+      stepFood(1 / 60);
+      sim.step(1 / 60, 0, 5, 20 + (f > 500 ? 60 : 0));
+      if (f % 150 === 149) {
+        for (const id of ['f0', 'f7', 'f23', 'f39']) {
+          const t = runtime.transforms.get(id)!;
+          out.push(t.position.x, t.position.y, t.position.z, t.quaternion.x, t.quaternion.w);
+        }
+      }
+    }
+    spy.mockRestore();
+    let weighted = 0;
+    for (let i = 0; i < b.count * 16; i++) weighted += b.matrices[i] * (1 + (i % 7));
+    for (let i = 0; i < b.count * 4; i++) weighted += b.swim[i] * (1 + (i % 5));
+    for (let i = 0; i < b.count; i++) weighted += b.bend[i] * 100;
+    expect(out.length).toBe(120);
+    expect(out.reduce((a, v) => a + v, 0)).toBeCloseTo(316.189135, 3);
+    expect(out.reduce((a, v, i) => a + v * (1 + (i % 11)), 0)).toBeCloseTo(1858.477261, 2);
+    expect(weighted).toBeCloseTo(3007.27341, 1);
+  });
+});
+
+describe('FishSim cruisers (minSpeed, roamRadius)', () => {
+  it('never slows below minSpeed, roams wide but stays near its anchor, and turns smoothly', () => {
+    runtime.transforms.clear();
+    const sim = new FishSim(getDef);
+    sim.sync([shark('s', 0, 6, 0)]);
+    const t = runtime.transforms.get('s')!;
+    let minSpeed = Infinity, maxSpeed = 0, maxDist = 0, maxYawRate = 0, minH = Infinity, maxY = -Infinity;
+    let prevYaw = yawOfQuat(t.quaternion);
+    const dt = 1 / 60;
+    for (let f = 0; f < 60 * 240; f++) {
+      sim.step(dt, 0, 5, 20);
+      const sp = sim.speedOf('s');
+      minSpeed = Math.min(minSpeed, sp);
+      maxSpeed = Math.max(maxSpeed, sp);
+      maxDist = Math.max(maxDist, Math.hypot(t.position.x, t.position.z));
+      minH = Math.min(minH, t.position.y - terrainHeight(t.position.x, t.position.z));
+      maxY = Math.max(maxY, t.position.y);
+      const yaw = yawOfQuat(t.quaternion);
+      let d = yaw - prevYaw;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      maxYawRate = Math.max(maxYawRate, Math.abs(d) / dt);
+      prevYaw = yaw;
+    }
+    expect(minSpeed).toBeGreaterThanOrEqual(0.6 - 1e-6);
+    expect(maxSpeed).toBeLessThan(1.6);
+    expect(maxDist).toBeGreaterThan(12); // a reef fish's home radius is ~3-15 m
+    expect(maxDist).toBeLessThan(35 * 1.4);
+    expect(maxYawRate).toBeLessThan(0.4); // wide, smooth arcs (turn radius of several body lengths)
+    expect(minH).toBeGreaterThan(0.7); // stays off the seabed
+    expect(maxY).toBeLessThan(SURFACE_Y - 1.5); // and away from the surface
+  });
+
+  it('beats its tail slowly (big animals beat slower) with a visible swing', () => {
+    runtime.transforms.clear();
+    const sim = new FishSim(getDef);
+    sim.sync([shark('s', 0, 6, 0)]);
+    const bs = sim.batchFor(sharkDef);
+    let prev = bs.swim[0];
+    let sum = 0;
+    let amp = 0;
+    const secs = 20;
+    for (let f = 0; f < 60 * secs; f++) {
+      sim.step(1 / 60, 0, 5, 20);
+      const ph = bs.swim[0];
+      sum += (ph - prev + 2 * Math.PI) % (2 * Math.PI);
+      prev = ph;
+      amp += bs.swim[1];
+    }
+    const hz = sum / (2 * Math.PI * secs);
+    expect(hz).toBeLessThan(1.6);
+    expect(hz).toBeGreaterThan(0.3);
+    expect(amp / (60 * secs)).toBeGreaterThan(0.05); // tail swing in body units
+  });
+
+  it('without minSpeed a fish may still hover', () => {
+    runtime.transforms.clear();
+    const sim = new FishSim(getDef);
+    sim.sync([fish('f', 0, 0)]);
+    let min = Infinity;
+    for (let f = 0; f < 60 * 120; f++) {
+      sim.step(1 / 60, 0, 5, 20);
+      min = Math.min(min, sim.speedOf('f'));
+    }
+    expect(min).toBeLessThan(0.1);
+  });
+});
+
+describe('FishSim predators', () => {
+  const y = 6;
+  const at = (id: string, x: number, z: number): PlacedEntity => ({ ...fish(id, x, z), position: [x, y, z] });
+
+  it('reach scales with the predator size within 5..7 m', () => {
+    expect(predatorReach(0.3, 1)).toBe(5);
+    expect(predatorReach(2.2, 1)).toBeGreaterThan(5);
+    expect(predatorReach(2.2, 1.15)).toBeGreaterThan(predatorReach(2.2, 0.9));
+    expect(predatorReach(20, 1)).toBe(7);
+  });
+
+  it('small fish ahead of a shark scatter with a burst, keep their distance, then calm down', () => {
+    runtime.transforms.clear();
+    const sim = new FishSim(getDef);
+    sim.sync([shark('s', 0, y, 0), at('f', 3.5, 0.4)]);
+    const s = runtime.transforms.get('s')!;
+    const f = runtime.transforms.get('f')!;
+    let scared = false, topSpeed = 0, minDist = Infinity;
+    for (let k = 0; k < 60 * 4; k++) {
+      sim.step(1 / 60, 0, 5, 20);
+      scared ||= sim.isScared('f');
+      topSpeed = Math.max(topSpeed, sim.speedOf('f'));
+      minDist = Math.min(minDist, s.position.distanceTo(f.position));
+    }
+    expect(scared).toBe(true);
+    expect(topSpeed).toBeGreaterThan(1.0); // a short burst (cruise is 0.5 m/s)
+    expect(minDist).toBeGreaterThan(1.2); // it gave the shark room (and nothing was eaten)
+    expect(runtime.transforms.has('f')).toBe(true);
+
+    // The shark leaves: the fish calm down within a couple of seconds.
+    sim.sync([at('f', f.position.x, f.position.z)]);
+    for (let k = 0; k < 60 * 2.5; k++) sim.step(1 / 60, 0, 5, 20);
+    expect(sim.isScared('f')).toBe(false);
+  });
+
+  it('fish out of range, and other sharks, are not scared; nearby ones beside or behind are', () => {
+    runtime.transforms.clear();
+    const sim = new FishSim(getDef);
+    sim.sync([shark('s', 0, y, 0), shark('s2', -2, y, 3), at('far', 20, 0), at('behind', -3, -1)]);
+    let farScared = false, otherScared = false, behindScared = false;
+    for (let k = 0; k < 60; k++) {
+      sim.step(1 / 60, 0, 5, 20);
+      farScared ||= sim.isScared('far');
+      otherScared ||= sim.isScared('s') || sim.isScared('s2');
+      behindScared ||= sim.isScared('behind');
+    }
+    expect(farScared).toBe(false);
+    expect(otherScared).toBe(false);
+    expect(behindScared).toBe(true);
+  });
+
+  it('stays cheap and finite with many small fish and a few sharks', () => {
+    runtime.transforms.clear();
+    const sim = new FishSim(getDef);
+    const ents: PlacedEntity[] = Array.from({ length: 300 }, (_, k) => at(`f${k}`, (k % 20) * 1.5 - 15, Math.floor(k / 20) * 1.5 - 10));
+    for (let k = 0; k < 3; k++) ents.push(shark(`s${k}`, k * 8 - 8, y, 0, k));
+    sim.sync(ents);
+    for (let f = 0; f < 600; f++) sim.step(1 / 60, 0, 5, 20);
+    for (const e of ents) {
+      const t = runtime.transforms.get(e.id)!;
+      expect(Number.isFinite(t.position.x + t.position.y + t.position.z)).toBe(true);
+    }
   });
 });
